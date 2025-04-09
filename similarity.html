@@ -15,6 +15,24 @@
         <button id="sortDescButton">Sort Descending (Max first)</button><br>
     </div>
     <div class="table" id="table"></div>
+        <!-- Search Button Container -->
+    <br>
+    <div class="search-button-container">
+         <button class="button" id="searchReorderButton">Search
+                 <span class="tooltip" >Click here to do your search.</span>
+         </button>
+
+         <button class="button" id="clearSearchResetViewButton">Clear Search
+                <span class="tooltip" >Click here to do clear/reset search.</span>
+         </button>
+        <button class="button" onclick="calculer_similarity()">
+        Compute closest
+            <span class="tooltip" id="tooltip">Click here to calcul your compute closest.</span>
+        </button>
+        <button class="button" onclick="virtual_profile()">Explore hypothesis
+            <span class="tooltip" id="tooltip1">Click here to set value for your virtual patients.</span>
+        </button>
+    </div>
     <script>
                    // Variables globales pour les colonnes et les lignes
         let currentUsername  = null;
@@ -22,6 +40,9 @@
         let data_transform = [];
         let profileName = null;
         let currentlySortingColumnIndex = -1; // To store which column index we are sorting
+        let currentSearchCriteria = {}; // Store active search terms
+        let selectedRowIndices = new Set();
+
     // --- Helper functions for user-specific localStorage ---
         function getUserStorageKey(baseKey) {
             if (!currentUsername) {
@@ -155,59 +176,228 @@
 
         }
         console.log(profileName);
-        function afficherTableau() {
-            if (profileName) { // Only clean if it exists
+
+function afficherTableau(rowsToDisplay = null) {
+            if (profileName) {
                 profileName = cleanProfileName(profileName);
             }
-            console.log("Data for display: ", data_transform);
-            console.log("Selected columns for display:", selectedColumns);
+
+             // Always use the original header row from data_transform
+            const headerRow = data_transform[0] || [];
+             const dataRows = data_transform.slice(1); // Original data rows for reference if needed
+
+            console.log("Afficher Tableau - Displaying:", rowsToDisplay ? "Custom Order" : "Original Order");
+            console.log("Current Selection Set:", selectedRowIndices); // Log selection state
 
             let tableHtml = `<h1><P></P> ${profileName || 'No Profile'}</h1><table><thead><tr>`;
-            tableHtml += "<th>Select lines</th>"; // Non-sortable header
 
-            // Add header cells with click listeners for sorting
+            // --- Header Row Rendering ---
+            tableHtml += "<th>Select lines <br/> <input type='checkbox' id='selectAllRowsCheckbox' title='Select/Deselect All Displayed Rows'></th>";
+
             selectedColumns.forEach((originalColIndex, displayIndex) => {
-                // Ensure header row (data_transform[0]) exists and has the column
-                const headerText = (data_transform[0] && data_transform[0][originalColIndex] !== undefined)
-                                   ? data_transform[0][originalColIndex]
-                                   : `Column ${originalColIndex}`;
+                const headerText = headerRow[originalColIndex] !== undefined ? headerRow[originalColIndex] : `Column ${originalColIndex}`;
+                const searchInputId = `search-col-${originalColIndex}`;
+                 // Restore search value if criteria exist for this column
+                 const currentSearchValue = currentSearchCriteria[originalColIndex] || '';
 
-                // Added onclick directly here for simplicity, passing displayIndex
-                // Pass 'event' to get positioning info
-                tableHtml += `<th onclick="showSortOptions(${displayIndex}, event)">`; // Pass the DISPLAY index
-                tableHtml += `<input type='checkbox' class='columnSelect' value='${originalColIndex}'> `; // Stop propagation on checkbox click
-                tableHtml += `${headerText}</th>`;
+                tableHtml += `<th onclick="showSortOptions(${displayIndex}, event)">`;
+                tableHtml += `<input type='checkbox' class='columnSelect' value='${originalColIndex}' title='Include column in similarity/virtual'> `;
+                tableHtml += `${headerText}<br/>`;
+                 // Set the value attribute to the stored search term
+                tableHtml += `<input type='text' class='header-search' id='${searchInputId}' data-original-index='${originalColIndex}' placeholder='Search...' value="${escapeHtml(currentSearchValue)}" onclick='event.stopPropagation();'>`;
+                tableHtml += `</th>`;
             });
-
             tableHtml += "</tr></thead><tbody>";
 
-            // Check if data_transform has data rows
-            if (data_transform.length > 1) {
-                // Data rows
-                for (let i = 1; i < data_transform.length; i++) {
+            // --- Data Row Rendering ---
+             const rowSource = rowsToDisplay || dataRows.map((row, index) => ({ originalIndex: index + 1, rowData: row })); // Use provided order or create default mapping
+
+             if (rowSource.length > 0) {
+                rowSource.forEach(rowInfo => {
+                    const originalRowIndex = rowInfo.originalIndex; // Index in the original data_transform (1-based)
+                    const currentRowData = rowInfo.rowData;
+
+                    if (!currentRowData) return; // Skip if rowData is somehow missing
+                    const isChecked = selectedRowIndices.has(originalRowIndex);
+
                     tableHtml += "<tr>";
-                    tableHtml += `<td><input type='checkbox' class='rowSelect' value='${i}'></td>`;
+                     // Checkbox value MUST be the original index for other functions to work correctly
+                    tableHtml += `<td><input type='checkbox' class='rowSelect' value='${originalRowIndex}' ${isChecked ? 'checked' : ''}></td>`;
                     selectedColumns.forEach(originalColIndex => {
-                         // Handle potential undefined cells gracefully
-                        const cellData = (data_transform[i] && data_transform[i][originalColIndex] !== undefined)
-                                       ? data_transform[i][originalColIndex]
-                                       : '';
-                        tableHtml += `<td>${cellData}</td>`;
+                        const cellData = currentRowData[originalColIndex] !== undefined ? currentRowData[originalColIndex] : '';
+                        tableHtml += `<td>${escapeHtml(String(cellData))}</td>`; // Escape cell data
                     });
                     tableHtml += "</tr>";
-                }
+                });
             } else {
-                // Optional: Message if no data rows
-                const colCount = selectedColumns.length + 1; // +1 for the select lines column
-                 tableHtml += `<tr><td colspan="${colCount}">No data rows available.</td></tr>`;
+                const colCount = selectedColumns.length + 1;
+                tableHtml += `<tr><td colspan="${colCount}">No data rows available.</td></tr>`;
             }
 
             tableHtml += "</tbody></table>";
             document.getElementById('table').innerHTML = tableHtml;
 
-            // Hide sort options popup whenever table is redrawn
+            setupRowSelectionCheckboxes(); // Setup listeners for row checkboxes
             hideSortOptions();
         }
+
+        // Helper to escape HTML for safe display
+        function escapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            return String(unsafe)
+                 .replace(/&/g, "&")
+                 .replace(/</g, "<")
+                 .replace(/>/g, ">")
+                 .replace(/"/g, "")
+                 .replace(/'/g, "'");
+        }
+
+        function setupRowSelectionCheckboxes() {
+            const selectAllRowsCheckbox = document.getElementById('selectAllRowsCheckbox');
+            const rowCheckboxes = document.querySelectorAll('#table .rowSelect'); // Get newly rendered checkboxes
+
+            if (!selectAllRowsCheckbox) return;
+
+            // --- Update Select All State (Visual Only) ---
+             const updateSelectAllVisualState = () => {
+                 const totalVisibleRows = rowCheckboxes.length;
+                 // Count how many *visible* checkboxes have their index in the Set
+                 let checkedVisibleCount = 0;
+                 rowCheckboxes.forEach(cb => {
+                     if (selectedRowIndices.has(parseInt(cb.value, 10))) {
+                         checkedVisibleCount++;
+                     }
+                 });
+
+                 if (totalVisibleRows > 0) {
+                     if (checkedVisibleCount === totalVisibleRows) {
+                         selectAllRowsCheckbox.checked = true;
+                         selectAllRowsCheckbox.indeterminate = false;
+                     } else if (checkedVisibleCount === 0) {
+                         selectAllRowsCheckbox.checked = false;
+                         selectAllRowsCheckbox.indeterminate = false;
+                     } else {
+                         selectAllRowsCheckbox.checked = false;
+                         selectAllRowsCheckbox.indeterminate = true;
+                     }
+                 } else {
+                     selectAllRowsCheckbox.checked = false;
+                     selectAllRowsCheckbox.indeterminate = false;
+                 }
+             };
+
+
+            // --- Select All Rows listener ---
+            selectAllRowsCheckbox.addEventListener('change', function() {
+                const isChecking = this.checked; // Are we checking or unchecking?
+                // Iterate through ONLY the currently VISIBLE row checkboxes
+                rowCheckboxes.forEach(checkbox => {
+                    const originalIndex = parseInt(checkbox.value, 10);
+                     checkbox.checked = isChecking; // Sync visual state immediately
+                    if (isChecking) {
+                        selectedRowIndices.add(originalIndex); // Add to selection Set
+                    } else {
+                        selectedRowIndices.delete(originalIndex); // Remove from selection Set
+                    }
+                });
+                 this.indeterminate = false; // Not indeterminate after select/deselect all
+                 console.log("Selection Set after Select All:", selectedRowIndices);
+            });
+
+            // --- Individual Row listeners ---
+             rowCheckboxes.forEach(checkbox => {
+                 checkbox.addEventListener('change', function() {
+                     const originalIndex = parseInt(this.value, 10);
+                     if (this.checked) {
+                         selectedRowIndices.add(originalIndex); // Add to Set
+                     } else {
+                         selectedRowIndices.delete(originalIndex); // Remove from Set
+                     }
+                     console.log("Selection Set after individual click:", selectedRowIndices);
+                     updateSelectAllVisualState(); // Update the master checkbox's visual state
+                 });
+             });
+
+             // Initial sync of the "Select All" checkbox visual state when table loads/re-renders
+             updateSelectAllVisualState();
+        }
+
+        function searchAndReorderView() {
+            console.log("Searching and reordering view...");
+            const searchInputs = document.querySelectorAll('#table th input.header-search');
+            currentSearchCriteria = {}; // Reset and gather current criteria
+
+            // 1. Gather Search Terms (case-insensitive) & Store Globally
+            searchInputs.forEach(input => {
+                const searchTerm = input.value.trim().toLowerCase();
+                const originalColIndex = parseInt(input.getAttribute('data-original-index'), 10);
+                if (!isNaN(originalColIndex)) {
+                    if (searchTerm) { // Only store non-empty search terms
+                       currentSearchCriteria[originalColIndex] = input.value.trim(); // Store original case for display
+                    }
+                 }
+            });
+
+            console.log("Search Criteria:", currentSearchCriteria);
+            const criteriaKeys = Object.keys(currentSearchCriteria);
+
+            // If no criteria, just show original order (handled by calling afficherTableau without args)
+            if (criteriaKeys.length === 0) {
+                console.log("No search terms entered. Displaying original order.");
+                clearSearchAndResetView(); // Effectively resets if called with no criteria
+                return;
+            }
+
+            const matchingRows = [];
+            const nonMatchingRows = [];
+            const headerRow = data_transform[0]; // Keep header aside
+            const dataRows = data_transform.slice(1); // Rows to process
+
+            dataRows.forEach((currentRow, index) => {
+                let rowMatches = true; // Assume match
+                const originalIndex = index + 1; // 1-based index for checkbox value
+
+                for (const originalColIndexStr in currentSearchCriteria) {
+                     // Use stored original case criteria for display, but lower for comparison
+                    const searchTermLower = currentSearchCriteria[originalColIndexStr].toLowerCase();
+                    const originalColIndex = parseInt(originalColIndexStr, 10);
+                    const cellValue = (currentRow && currentRow[originalColIndex] !== undefined)
+                                    ? String(currentRow[originalColIndex]).toLowerCase()
+                                    : '';
+
+                    if (!cellValue.includes(searchTermLower)) {
+                        rowMatches = false;
+                        break;
+                    }
+                }
+
+                const rowInfo = { originalIndex: originalIndex, rowData: currentRow };
+                if (rowMatches) {
+                    matchingRows.push(rowInfo);
+                } else {
+                    nonMatchingRows.push(rowInfo);
+                }
+            });
+            if(matchingRows.length === 0){
+                alert("Found 0 result for your search!");
+                return;
+            }
+            console.log(`Found ${matchingRows.length} matching rows.`);
+            const orderedRowsForDisplay = [...matchingRows, ...nonMatchingRows];
+
+            afficherTableau(orderedRowsForDisplay);
+        }
+
+        // --- NEW Function: Clear Search Inputs & Reset View ---
+        function clearSearchAndResetView() {
+             console.log("Clearing search and resetting view...");
+             currentSearchCriteria = {}; // Clear stored criteria
+             // Now call afficherTableau without arguments to use default data_transform order
+             afficherTableau();
+        }
+
+
+
         function getTableData() {
                 let tableData = [];
                 // Sélectionner le tableau affiché
@@ -253,59 +443,81 @@
         return ascending ? comparison : comparison * -1; // Reverse for descending
     }
 
-    /**
-     * Sorts the data_transform array based on the currently selected column and sort type.
-     * @param {'asc' | 'desc'} sortType - The type of sorting ('asc' for ascending, 'desc' for descending)
-     */
-    function simple_sort(sortType) {
-        console.log(`Sorting column index: ${currentlySortingColumnIndex}, type: ${sortType}`);
-        if (currentlySortingColumnIndex === -1 || !data_transform || data_transform.length < 2) {
-            console.log("Sorting prerequisites not met.");
-            hideSortOptions();
-            return; // No column selected or no data/header to sort
-        }
 
-        // Separate header row from data rows
-        const headerRow = data_transform[0];
-        let dataRows = data_transform.slice(1);
+document.addEventListener('DOMContentLoaded', () => {
+             // Keep existing listeners for sort buttons and close popup
+             // ... sort listeners ...
+             const sortAscBtn = document.getElementById('sortAscButton');
+             const sortDescBtn = document.getElementById('sortDescButton');
+             const closePopupBtn = document.getElementById('closeSortPopup');
+             if (sortAscBtn) sortAscBtn.addEventListener('click', () => simple_sort('asc'));
+             if (sortDescBtn) sortDescBtn.addEventListener('click', () => simple_sort('desc'));
+             if (closePopupBtn) closePopupBtn.addEventListener('click', hideSortOptions);
 
-        // Perform the sort on dataRows
-        const ascending = (sortType === 'asc');
-        dataRows.sort((rowA, rowB) => {
-            // Ensure rows and the specific cell exist before comparing
-            const valA = rowA && rowA[currentlySortingColumnIndex] !== undefined ? rowA[currentlySortingColumnIndex] : null;
-            const valB = rowB && rowB[currentlySortingColumnIndex] !== undefined ? rowB[currentlySortingColumnIndex] : null;
-            return compareValues(valA, valB, ascending);
-        });
 
-        // Recombine header and sorted data rows
-        data_transform = [headerRow, ...dataRows];
+             // Add listener for the Search & Reorder button
+             const searchReorderBtn = document.getElementById('searchReorderButton');
+             if (searchReorderBtn) {
+                 searchReorderBtn.addEventListener('click', searchAndReorderView);
+             }
 
-        // Update the displayed table
-        afficherTableau(); // This will also hide the popup
-    }
+             // Add listener for the Clear Search / Reset View button
+              const clearSearchResetBtn = document.getElementById('clearSearchResetViewButton');
+              if (clearSearchResetBtn) {
+                  clearSearchResetBtn.addEventListener('click', clearSearchAndResetView);
+              }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const sortAscBtn = document.getElementById('sortAscButton');
-            const sortDescBtn = document.getElementById('sortDescButton');
-            const closePopupBtn = document.getElementById('closeSortPopup');
-            if (sortAscBtn) {
-                sortAscBtn.addEventListener('click', () => simple_sort('asc'));
-            }
-            if (sortDescBtn) {
-                sortDescBtn.addEventListener('click', () => simple_sort('desc'));
-            }
-            if (closePopupBtn) { // <-- Add listener for the 'x' button
-                closePopupBtn.addEventListener('click', hideSortOptions); // Reuse the existing hide function
-            }
              console.log("similar.js DOMContentLoaded - Listener setup complete. Waiting for user message.");
+             // ... initial loading message ...
+             const tableDiv = document.getElementById('table');
+              if (tableDiv) {
+                  tableDiv.innerHTML = "<h2>Loading user context...</h2>";
+              }
+         });
 
-            // Optional: Show a loading message initially
-            const tableDiv = document.getElementById('table');
-            if (tableDiv) {
-                tableDiv.innerHTML = "<h2>Loading user context...</h2>";
-            }
-        });
+         // --- Sorting Logic (Modified to work with reordered view) ---
+          function simple_sort(sortType) {
+              console.log(`Sorting column index: ${currentlySortingColumnIndex}, type: ${sortType}`);
+              if (currentlySortingColumnIndex === -1 || !data_transform || data_transform.length < 2) {
+                  console.log("Sorting prerequisites not met.");
+                  hideSortOptions();
+                  return;
+              }
+
+              // Determine the current display order
+              const currentDisplayedRows = getCurrentDisplayOrder(); // Get { originalIndex, rowData } array
+
+              // Perform the sort on the currentDisplayedRows array
+              const ascending = (sortType === 'asc');
+              currentDisplayedRows.sort((rowAInfo, rowBInfo) => {
+                    // Compare using the actual rowData based on the sorting column index
+                    const valA = rowAInfo.rowData && rowAInfo.rowData[currentlySortingColumnIndex] !== undefined ? rowAInfo.rowData[currentlySortingColumnIndex] : null;
+                    const valB = rowBInfo.rowData && rowBInfo.rowData[currentlySortingColumnIndex] !== undefined ? rowBInfo.rowData[currentlySortingColumnIndex] : null;
+                    return compareValues(valA, valB, ascending); // Use existing compare function
+                });
+
+
+              // Update the displayed table with the sorted version of the *current* view
+              afficherTableau(currentDisplayedRows);
+          }
+
+         // Helper function to get the current displayed row order from the DOM or state
+         // This version gets it from the DOM based on checkbox values
+         function getCurrentDisplayOrder() {
+            const displayedRowsInfo = [];
+            const rowCheckboxes = document.querySelectorAll('#table tbody .rowSelect');
+             rowCheckboxes.forEach(checkbox => {
+                 const originalIndex = parseInt(checkbox.value, 10);
+                 if (!isNaN(originalIndex) && originalIndex > 0 && originalIndex <= data_transform.length - 1) {
+                     // originalIndex is 1-based from checkbox, need 0-based for data_transform[index+1]
+                     displayedRowsInfo.push({
+                         originalIndex: originalIndex,
+                         rowData: data_transform[originalIndex] // Get data from original source using index
+                     });
+                 }
+             });
+             return displayedRowsInfo;
+         }
 
         // Fonction pour calculer la distance Euclidienne entre deux vecteurs
         function euclideanDistance(vec1, vec2) {
@@ -355,20 +567,20 @@ function trierParDistanceEuclidienne(fullRows, selectedRows, filteredRows) {
 function calculer_similarity() {
     const selectedRows = Array.from(document.querySelectorAll('input.rowSelect:checked')).map(input => parseInt(input.value));
     const selectedCols = Array.from(document.querySelectorAll('input.columnSelect:checked')).map(input => parseInt(input.value));
-    let rows = getTableData();
-    console.log("Rows: ",rows);
+    console.log("Selected cols: ",selectedCols);
+    console.log("Selected rows: ",selectedRows);
 
     const tooltip = document.getElementById('tooltip');
     tooltip.style.display = "none"; // Masquer le tooltip par défaut
 
     if (selectedRows.length === 0) {
-        tooltip.textContent = "if no line selected, message: \"Please select at least one patient!\"";
+        tooltip.textContent = "\"Please select at least one patient!\"";
         tooltip.style.display = "block"; // Afficher le tooltip
         alert("Please select at least one row!");
         return;
     }
     else if (selectedCols.length === 0) {
-        tooltip.textContent = "if no column selected, message: \"Please select at least one column!\"";
+        tooltip.textContent = "\"Please select at least one column!\"";
         tooltip.style.display = "block"; // Afficher le tooltip
         alert("Please select at least one column!");
         return;
@@ -385,7 +597,7 @@ function calculer_similarity() {
 
     console.log("Fil: ",filteredRows);
     // Valeur original dans ce fichier
-    const fullRows = rows.slice(1);
+    const fullRows = data_transform.slice(1);
     console.log("Full: ",fullRows);
 
     // Données après similarité
@@ -393,7 +605,7 @@ function calculer_similarity() {
     console.log(orderedData);
     // Creer un table pour des nouveau fichier .csv après similarité
     let table_similarity = `<div class=\"table\" id=\"table\"> <h1> Result Similarity for ${profileName} </h1><table><thead><tr>`;
-    rows[0].forEach(header => {
+    data_transform[0].forEach(header => {
         table_similarity += `<th>${header}</th>`;
     });
     table_similarity += "</tr></thead><tbody>";
@@ -426,7 +638,7 @@ function virtual_profile() {
     tooltip1.style.display = "none"; // Masquer le tooltip par défaut
 
     if (selectedRows.length === 0) {
-        tooltip1.textContent = "if no line selected, message: \"Please select at least one patient!\"";
+        tooltip1.textContent = " \"Please select at least one patient!\"";
         tooltip1.style.display = "block"; // Afficher le tooltip
         alert("Please select at least one row!");
         return;
@@ -453,13 +665,5 @@ function virtual_profile() {
 }
 
     </script>
-    <br>
-    <button class="button" onclick="calculer_similarity()">
-    Compute similarity
-        <span class="tooltip" id="tooltip">If no line selected, message : "Please select patients"</span>
-    </button>
-    <button class="button" onclick="virtual_profile()">Explore hypothesis
-        <span class="tooltip" id="tooltip1">If no line selected, message : "Please select patients"</span>
-    </button>
 </body>
 </html>

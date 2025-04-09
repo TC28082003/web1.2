@@ -18,7 +18,7 @@
         <template id="pageContentTemplate">
         <div id="table">
                 <div id="profileContainer" style="margin-bottom: 20px; text-align: center;">
-            <h2 id="profileTitle" style="font-size: 22px; font-weight: bold; color: #007bff; margin-bottom: 10px;">
+            <h2 id="profileTitle" style="font-size: 16px; font-weight: bold; color: #007bff; margin-bottom: 10px;">
                 Profile Name : <span id="displayProfileName" style="color: #FF4500;"></span>
             </h2>
         </div>
@@ -38,6 +38,10 @@
 
         <fieldset>
             <legend>Display columns</legend>
+            <div class="select-all-container">
+                        <input type="checkbox" id="selectAllCols">
+                        <label for="selectAllCols">Select/Deselect All Columns</label>
+            </div>
             <div id="columnDisplay" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; background-color: #f9f9f9;">
                 Please select a profile to display its columns.
             </div>
@@ -443,7 +447,7 @@ function updateFileList() {
                 background-color: #007bff;
                 border: none;
                 border-radius: 30px;
-                font-size: 16px;
+                font-size: 14px;
                 cursor: pointer;
                 transition: all 0.3s ease-in-out;
                 text-align: center;
@@ -499,7 +503,7 @@ function display_profile(profileName) {
                 background-color: #007bff;
                 border: none;
                 border-radius: 30px;
-                font-size: 16px;
+                font-size: 14px;
                 cursor: pointer;
                 transition: all 0.3s ease-in-out;
                 text-align: center;
@@ -523,37 +527,98 @@ function display_profile(profileName) {
     });
         display_profile_colums(profileName);
 }
+            function display_profile_colums(profileName) {
+                const profileData = savedProfiles[profileName];
+                const columnDisplayContainer = document.getElementById("columnDisplay"); // Get the container div
 
-// Fonction pour afficher toutes les colonnes du profil `name_profile`
-function display_profile_colums(profileName) {
-    const profileData = savedProfiles[profileName];
-    if (!profileData) {
-        return;
-    }
+                if (!profileData || !columnDisplayContainer) {
+                    // Clear display if no data or container not found
+                    if (columnDisplayContainer) {
+                        columnDisplayContainer.innerHTML = "Profile data not found or container missing.";
+                    }
+                    document.getElementById("displayProfileName").textContent = "(None Selected)";
+                    lastVisitedProfile = "";
+                    setUserItem("lastVisitedProfile", "");
+                    return;
+                }
 
-    const columnHeaders = Object.keys(profileData); // Les colonnes (les clés)
+                const columnHeaders = Object.keys(profileData); // The columns (the keys)
+                let htmlContent = "";
 
-    // Obtenir l'en-tête de colonnes (première ligne du fichier)
-    let htmlColonnes = "<div class='display-columns'>";
+                // 2. Add the grid container for individual checkboxes
+                 htmlContent += "<div class='display-columns'>"; // Start the grid container
 
-    for (let j = 0; j < columnHeaders.length; j++) {
-        // Générer chaque colonne
-        htmlColonnes += `
-        <div style="width: 80%;">
-            <input type="checkbox" class="colSelect" id="${j}" value="${j}">
-            <label for="${j}">${columnHeaders[j]}</label>
-        </div>`;
-    }
-    htmlColonnes += "</div>";
-    // Afficher les colonnes dans le conteneur de colonnes
-    document.getElementById("columnDisplay").innerHTML = htmlColonnes;
-    // Mettre à jour le nom du profil activement sélectionné
-    document.getElementById("displayProfileName").textContent = profileName;
-        // Mémoriser le dernier profil visité dans une variable globale
-    lastVisitedProfile = profileName;
-    // Optionnel : stocker dans le localStorage si vous voulez le rendre persistant
-    setUserItem("lastVisitedProfile",profileName);
-}
+                // 3. Generate individual column checkboxes within the grid container
+                for (let j = 0; j < columnHeaders.length; j++) {
+                     // Use unique IDs for labels and inputs
+                     const checkboxId = `col_check_${j}`;
+                     htmlContent += `
+                        <div>
+                            <input type="checkbox" class="colSelect" id="${checkboxId}" value="${j}">
+                            <label for="${checkboxId}">${columnHeaders[j]}</label>
+                        </div>`;
+                 }
+                 htmlContent += "</div>"; // Close the grid container
+
+                // 4. Set the generated HTML to the container
+                columnDisplayContainer.innerHTML = htmlContent;
+
+                // 5. Update the displayed profile name and store the last visited
+                document.getElementById("displayProfileName").textContent = profileName;
+                lastVisitedProfile = profileName;
+                setUserItem("lastVisitedProfile", profileName);
+
+                // 6. Add Event Listeners *after* HTML is in the DOM
+                const selectAllCheckbox = document.getElementById('selectAllCols');
+                const individualCheckboxes = columnDisplayContainer.querySelectorAll('.colSelect'); // Select only within this container
+
+                if (selectAllCheckbox && individualCheckboxes.length > 0) {
+                    // Listener for the "Select All" checkbox
+                    selectAllCheckbox.addEventListener('change', function() {
+                        const isChecked = this.checked;
+                        individualCheckboxes.forEach(checkbox => {
+                            checkbox.checked = isChecked;
+                        });
+                    });
+
+                    // Listener for individual checkboxes (to update "Select All")
+                    individualCheckboxes.forEach(checkbox => {
+                        checkbox.addEventListener('change', function() {
+                            const total = individualCheckboxes.length;
+                            const checkedCount = columnDisplayContainer.querySelectorAll('.colSelect:checked').length;
+
+                            if (checkedCount === total) {
+                                selectAllCheckbox.checked = true;
+                                selectAllCheckbox.indeterminate = false; // Not indeterminate if all are checked
+                            } else if (checkedCount === 0) {
+                                selectAllCheckbox.checked = false;
+                                selectAllCheckbox.indeterminate = false; // Not indeterminate if none are checked
+                            } else {
+                                // Some are checked, but not all
+                                selectAllCheckbox.checked = false; // Uncheck the main box
+                                selectAllCheckbox.indeterminate = true; // Set indeterminate state (optional but good UX)
+                            }
+                        });
+                    });
+
+                    // Initial state sync for "Select All" checkbox on load
+                    const initialCheckedCount = columnDisplayContainer.querySelectorAll('.colSelect:checked').length;
+                     if (initialCheckedCount === individualCheckboxes.length) {
+                         selectAllCheckbox.checked = true;
+                         selectAllCheckbox.indeterminate = false;
+                     } else if (initialCheckedCount === 0) {
+                         selectAllCheckbox.checked = false;
+                         selectAllCheckbox.indeterminate = false;
+                     } else {
+                         selectAllCheckbox.checked = false;
+                         selectAllCheckbox.indeterminate = true;
+                     }
+
+                } else if (selectAllCheckbox) {
+                     // Disable select all if there are no individual checkboxes
+                     selectAllCheckbox.disabled = true;
+                }
+            }
 
 function delete_profil() {
     if (!currentUsername) {

@@ -44,7 +44,7 @@ nav {
 nav a.main-nav { /* More specific selector if needed */
     color: white;
     text-decoration: none;
-    font-size: 15px; /* Slightly adjusted size */
+    font-size: 14px; /* Slightly adjusted size */
     padding: 8px 12px; /* Slightly adjusted padding */
     cursor: pointer;
     border-radius: 4px;
@@ -121,7 +121,7 @@ h2 {
     text-align: center;
     background-color: #f8f9fa;
     padding: 10px;
-    font-size: 18px;
+    font-size: 14px;
 }
 
 /* Corps de la page */
@@ -131,7 +131,7 @@ body {
     padding: 20px;
     background-color: #f4f4f4;
     text-align: center;
-    font-size: 14px;
+    font-size: 12px;
 }
 
 fieldset {
@@ -146,7 +146,7 @@ fieldset {
 
 /* Légende principale */
 legend {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: bold;
     color: #007bff;
     padding: 5px 10px;
@@ -239,13 +239,13 @@ legend {
 
 /* Boutons */
     .button1 {
-        height: 45px;
-        width: 15%;
+        height: 30px;
+        width: 10%;
         color: white;
         background-color: #007bff;
         border: none;
         border-radius: 30px;
-        font-size: 16px;
+        font-size: 14px;
         cursor: pointer;
         transition: all 0.3s ease-in-out;
         text-align: center;
@@ -253,6 +253,11 @@ legend {
 
 
     /* Media query for tablets */
+    @media (max-width: 1200px) {
+        .button1 {
+            width: 15%; /* Increase button width for tablets */
+        }
+    }
     @media (max-width: 900px) {
         .button1 {
             width: 20%; /* Increase button width for tablets */
@@ -300,5 +305,3 @@ input[type="file"] {
     position: absolute;
     z-index: -1;
 }
-
-
