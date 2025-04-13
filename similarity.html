@@ -4,12 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Display patients</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <!-- Firebase Initialization (should run before your custom scripts) -->
+    <script src="firebase-init.js"></script>
     <link rel="stylesheet" href="style_table.css">
 </head>
 <body>
     <div id="sortOptionsPopup" style="display: none; position: absolute; border: 1px solid #ccc; background-color: dodgerblue; padding: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); z-index: 10;">
         <span id="closeSortPopup" class="close-button" title="Close"><img src="close-icon.png" alt="Close"></span>
-        <p>Sort options for:</p>
+        <p id="sortPopupTitle">Sort options for:</p>
         <p><strong id="sortColumnName"></strong></p>
         <button id="sortAscButton">Sort Ascending (Min first)</button><br>
         <button id="sortDescButton">Sort Descending (Max first)</button><br>
@@ -19,38 +25,179 @@
     <br>
     <div class="search-button-container">
          <button class="button" id="searchReorderButton">Search
-                 <span class="tooltip" >Click here to do your search.</span>
+                 <span class="tooltip" id="searchTooltip">Click here to filter the displayed data.</span>
          </button>
 
          <button class="button" id="clearSearchResetViewButton">Clear Search
-                <span class="tooltip" >Click here to do clear/reset search.</span>
+                <span class="tooltip" id="clearSearchTooltip" >Click here to do clear/reset search.</span>
          </button>
-        <button class="button" onclick="calculer_similarity()">
+        <button class="button" id="computeClosestButton" onclick="calculer_similarity()">
         Compute closest
-            <span class="tooltip" id="tooltip">Click here to calcul your compute closest.</span>
+            <span class="tooltip" id="computeClosestTooltip">Click here to calcul your compute closest.</span>
         </button>
-        <button class="button" onclick="virtual_profile()">Explore hypothesis
-            <span class="tooltip" id="tooltip1">Click here to set value for your virtual patients.</span>
+        <button class="button" id="exploreHypothesisButton" onclick="virtual_profile()">Explore hypothesis
+            <span class="tooltip" id="exploreHypothesisTooltip">Click here to set value for your virtual patients.</span>
         </button>
     </div>
     <script>
-                   // Variables globales pour les colonnes et les lignes
-        let currentUsername  = null;
+        let currentUserUid  = null;
         let selectedColumns = [];
         let data_transform = [];
         let profileName = null;
         let currentlySortingColumnIndex = -1; // To store which column index we are sorting
         let currentSearchCriteria = {}; // Store active search terms
         let selectedRowIndices = new Set();
+        let currentPageLanguage = 'en';
+        const pageTranslations = {
+            en: {
+                pageTitle: "Display Patients",
+                loadingUserContext: "Loading user context...",
+                loadingDataError: "Error: User context not loaded. Please try reloading or logging in again.",
+                noDataPassed: "No data passed for profile \"{profileName}\" for user {currentUserUid}. Please go back and select data on the 'Page Home'.",
+                tableTitle: "Displaying data for profile: {profileName}", // Use {profileName} as placeholder
+                selectRowsHeader: "Select lines",
+                searchPlaceholder: "Search...",
+                // Sort Popup
+                sortPopupTitle: "Sort options for:",
+                sortAscButton: "Sort Ascending (Min first)",
+                sortDescButton: "Sort Descending (Max first)",
+                closeSortPopupTooltip: "Close",
+                // Buttons and Tooltips
+                searchButtonText: "Search",
+                searchButtonTooltip: "Click here to filter the displayed data.",
+                clearSearchButtonText: "Clear Search",
+                clearSearchButtonTooltip: "Click here to clear search filters and reset the view.",
+                computeClosestButtonText: "Compute Closest",
+                computeClosestButtonTooltip: "Click here to calculate similarity based on selection.",
+                computeClosestTooltipSelectPatient: "Please select at least one patient!",
+                computeClosestTooltipSelectColumn: "Please select at least one column!",
+                computeClosestTooltipReady: "Click here to calculate similarity.",
+                exploreHypothesisButtonText: "Explore Hypothesis",
+                exploreHypothesisButtonTooltip: "Click here to define and test virtual patients.",
+                exploreHypothesisTooltipSelectPatient: "Please select at least one patient!",
+                exploreHypothesisTooltipReady: "Click here to set up virtual patients.",
+                // Alerts / Messages
+                alterSearch: "No search terms entered. Displaying original order",
+                alertSelectPatient: "Please select at least one patient row!",
+                alertSelectColumn: "Please select at least one column for the calculation!",
+                alertSearchNotFound: "Found 0 results for your search!",
+                // Table status
+                noDataRows: "No data rows available.",
+                noProfile: "No Profile Name", // Fallback if profileName is missing
+                titleTable: "Result Similarity for "
+            },
+            fr: {
+                pageTitle: "Afficher Patients",
+                loadingUserContext: "Chargement du contexte utilisateur...",
+                loadingDataError: "Erreur : Contexte utilisateur non chargé. Veuillez recharger ou vous reconnecter.",
+                noDataPassed: "Aucune donnée transmise pour le profil \"{profileName}\" pour l'utilisateur {currentUserUid}. Veuillez retourner à la page d'accueil et sélectionner des données.",
+                tableTitle: "Affichage des données pour le profil : {profileName}",
+                selectRowsHeader: "Sélec. lignes",
+                searchPlaceholder: "Rechercher...",
+                // Sort Popup
+                sortPopupTitle: "Options de tri pour :",
+                sortAscButton: "Tri Ascendant (Min d'abord)",
+                sortDescButton: "Tri Descendant (Max d'abord)",
+                closeSortPopupTooltip: "Fermer",
+                // Buttons and Tooltips
+                searchButtonText: "Rechercher",
+                searchButtonTooltip: "Cliquez ici pour filtrer les données affichées.",
+                clearSearchButtonText: "Effacer Rech.",
+                clearSearchButtonTooltip: "Cliquez ici pour effacer les filtres et réinitialiser la vue.",
+                computeClosestButtonText: "Calculer Proximité",
+                computeClosestButtonTooltip: "Cliquez ici pour calculer la similarité basée sur la sélection.",
+                computeClosestTooltipSelectPatient: "Veuillez sélectionner au moins une ligne patient !",
+                computeClosestTooltipSelectColumn: "Veuillez sélectionner au moins une colonne !",
+                computeClosestTooltipReady: "Cliquez ici pour calculer la similarité.",
+                exploreHypothesisButtonText: "Explorer Hypothèse",
+                exploreHypothesisButtonTooltip: "Cliquez ici pour définir et tester des patients virtuels.",
+                exploreHypothesisTooltipSelectPatient: "Veuillez sélectionner au moins une ligne patient !",
+                exploreHypothesisTooltipReady: "Cliquez ici pour configurer des patients virtuels.",
+                // Alerts / Messages
+                alterSearch: "Aucun terme de recherche saisi. Affichage de la commande d'origine.",
+                alertSelectPatient: "Veuillez sélectionner au moins une ligne patient !",
+                alertSelectColumn: "Veuillez sélectionner au moins une colonne pour le calcul !",
+                alertSearchNotFound: "Aucun résultat trouvé pour votre recherche !",
+                // Table status
+                noDataRows: "Aucune ligne de données disponible.",
+                noProfile: "Pas de Nom de Profil",
+                titleTable: "Similarité des résultats pour"
+            }
+        };
+        function applyLanguage(lang) {
+            if (!pageTranslations[lang]) lang = 'en'; // Fallback
+            currentPageLanguage = lang;
+            const T = pageTranslations[currentPageLanguage];
 
+            document.documentElement.lang = lang;
+            document.title = T.pageTitle;
+
+            // Update sort popup elements
+            const sortPopupTitleEl = document.getElementById('sortPopupTitle');
+            const sortAscButtonEl = document.getElementById('sortAscButton');
+            const sortDescButtonEl = document.getElementById('sortDescButton');
+            const closeSortPopupEl = document.getElementById('closeSortPopup'); // The span
+            if (sortPopupTitleEl) sortPopupTitleEl.textContent = T.sortPopupTitle;
+            if (sortAscButtonEl) sortAscButtonEl.textContent = T.sortAscButton;
+            if (sortDescButtonEl) sortDescButtonEl.textContent = T.sortDescButton;
+            if (closeSortPopupEl) closeSortPopupEl.title = T.closeSortPopupTooltip;
+
+            // Update main buttons and their tooltips
+            const searchBtn = document.getElementById('searchReorderButton');
+            const clearSearchBtn = document.getElementById('clearSearchResetViewButton');
+            const computeBtn = document.getElementById('computeClosestButton');
+            const exploreBtn = document.getElementById('exploreHypothesisButton');
+
+            const searchTooltip = document.getElementById('searchTooltip');
+            const clearSearchTooltip = document.getElementById('clearSearchTooltip');
+            const computeTooltip = document.getElementById('computeClosestTooltip');
+            const exploreTooltip = document.getElementById('exploreHypothesisTooltip');
+
+             // Update button text (stripping existing tooltip span if necessary)
+             if (searchBtn) searchBtn.childNodes[0].nodeValue = T.searchButtonText + ' '; // Text node before span
+             if (clearSearchBtn) clearSearchBtn.childNodes[0].nodeValue = T.clearSearchButtonText + ' ';
+             if (computeBtn) computeBtn.childNodes[0].nodeValue = T.computeClosestButtonText + ' ';
+             if (exploreBtn) exploreBtn.childNodes[0].nodeValue = T.exploreHypothesisButtonText + ' ';
+
+             // Update tooltip text
+            if (searchTooltip) searchTooltip.textContent = T.searchButtonTooltip;
+            if (clearSearchTooltip) clearSearchTooltip.textContent = T.clearSearchButtonTooltip;
+            if (computeTooltip) computeTooltip.textContent = T.computeClosestButtonTooltip; // Default tooltip
+            if (exploreTooltip) exploreTooltip.textContent = T.exploreHypothesisButtonTooltip; // Default tooltip
+
+
+            // Re-render the table if data exists, as headers/placeholders need translation
+            if (data_transform && data_transform.length > 0) {
+                 // Determine which rows are currently displayed (needed if search/sort is active)
+                 const currentOrder = getCurrentDisplayOrder(); // Get current state
+                 afficherTableau(currentOrder.length > 0 ? currentOrder : null); // Re-render with current order
+            } else {
+                // If no data, update any loading/error messages
+                 const tableDiv = document.getElementById('table');
+                 if (tableDiv && tableDiv.querySelector('h2')) { // Check if message exists
+                     // Re-evaluate the message based on current state and language
+                     if (!currentUserUid) {
+                         tableDiv.innerHTML = `<h2>${T.loadingDataError}</h2>`;
+                     } else if (!data_transform || data_transform.length === 0) {
+                         tableDiv.innerHTML = `<h2>${T.noDataPassed.replace('{profileName}', profileName || T.noProfile).replace('{currentUserUid}', currentUserUid)}</h2>`;
+                     } else {
+                          // If data *is* present but table wasn't rendered, render it now
+                           const currentOrder = getCurrentDisplayOrder();
+                           afficherTableau(currentOrder.length > 0 ? currentOrder : null);
+                     }
+                 }
+            }
+
+            console.log(`Similarity page language applied: ${lang}`);
+        }
     // --- Helper functions for user-specific localStorage ---
         function getUserStorageKey(baseKey) {
-            if (!currentUsername) {
-                console.error("Username not set, cannot access user-specific storage for key:", baseKey);
+            if (!currentUserUid) {
+                console.error("User UID not set, cannot access user-specific storage for key:", baseKey);
                 // Potentially redirect to login or show error
                 return null; // Or throw an error
             }
-            return `${currentUsername}_${baseKey}`;
+            return `${currentUserUid}_${baseKey}`;
         }
 
         function setUserItem(baseKey, value) {
@@ -72,36 +219,35 @@
             }
         }
 
-            // --- End Helper Functions ---
-        // In similar.js
-
         function initializePageDataAndDisplay() {
-            if (!currentUsername) {
-                console.error("Cannot initialize page: Username not set.");
-                document.getElementById('table').innerHTML = "<h2>Error: User context not loaded. Please try reloading or logging in again.</h2>";
-                // Disable buttons if needed
-                const buttons = document.querySelectorAll('.button'); // Assuming .button is common class for Compute/Explore
-                buttons.forEach(button => { button.disabled = true; button.style.opacity = 0.5; });
-                return;
-            }
-            console.log(`Initializing page data for user: ${currentUsername}`);
+            const T = pageTranslations[currentPageLanguage];
+            currentUserUid = getUserItem('currentUserUid', null); // Load UID if previously stored by pagehome
+            // Use current language
+            if (!currentUserUid) {
+                 console.error("Cannot initialize page: Username not set.");
+                 document.getElementById('table').innerHTML = `<h2>${T.loadingDataError}</h2>`; // Translated error
+                 const buttons = document.querySelectorAll('.button');
+                 buttons.forEach(button => { button.disabled = true; button.style.opacity = 0.5; });
+                 return;
+             }
+            console.log(`Initializing page data for user: ${currentUserUid}`);
 
             // Load data using user-specific keys
             selectedColumns = getUserItem('selectedColumns', []);
             data_transform = getUserItem('data_transform', []);
             profileName = getUserItem('profileName', '');
 
-            console.log("Initial load - User:", currentUsername);
+            console.log("Initial load - User:", currentUserUid);
             console.log("Initial load - Selected Column Indices (Original Profile):", selectedColumns);
             console.log("Initial load - Data for Table:", data_transform);
             console.log("Initial load - Profile Name:", profileName);
 
             if (!data_transform || data_transform.length === 0) {
                 console.warn("No data loaded for similarity display.");
-                 document.getElementById('table').innerHTML = `<h2>No data passed for profile "${profileName || 'Unknown'}" for user ${currentUsername}.</h2> <p>Please go back and select data on the 'Page Home'.</p>`;
-                 // Disable buttons
-                 const buttons = document.querySelectorAll('.button');
-                 buttons.forEach(button => { button.disabled = true; button.style.opacity = 0.5; });
+                const safeProfileName = profileName ? cleanProfileName(profileName) : T.noProfile;
+                document.getElementById('table').innerHTML = `<h2>${T.noDataPassed.replace('{profileName}', safeProfileName).replace('{currentUserUid}', currentUserUidcurrentUserUid)}</h2>`;
+                const buttons = document.querySelectorAll('.button');
+                buttons.forEach(button => { button.disabled = true; button.style.opacity = 0.5; });
                 return;
             }
 
@@ -117,23 +263,29 @@
 
         // The message listener remains largely the same, ensuring it calls initializePageDataAndDisplay
         window.addEventListener('message', (event) => {
-            // Optional: Origin check for security
-            // if (event.origin !== 'expected-origin') { return; }
-
-            if (event.data && event.data.action === 'setUser') {
-                const receivedUsername = event.data.username;
-                console.log(`similar.js received user message: ${receivedUsername}`);
-
-                // Set username and initialize *only if* it's new or wasn't set
-                if (!currentUsername || currentUsername !== receivedUsername) {
-                    currentUsername = receivedUsername;
-                    console.log(`Username set to: ${currentUsername}. Initializing page...`);
-                    initializePageDataAndDisplay(); // Trigger loading and display
-                } else {
-                     console.log(`User ${currentUsername} already set. Re-initializing.`);
-                     // Decide if you *need* to re-initialize even if the username is the same.
-                     // Usually yes, in case the underlying data changed between navigations.
-                     initializePageDataAndDisplay();
+            if (event.data && event.data.action) {
+                console.log(`similarity.html received message:`, event.data);
+                switch(event.data.action) {
+                    case 'setUser':
+                        const receivedUid = event.data.uid;
+                        console.log(`User context received: UID=${receivedUid}`);
+                        if (!currentUserUid || currentUserUid !== receivedUid) {
+                            currentUserUid = receivedUid;
+                            setUserItem('currentUserUid', currentUserUid);
+                            console.log(`User UID set to: ${currentUserUid}. Initializing page...`);
+                            initializePageDataAndDisplay();
+                        } else {
+                             console.log(`User ${currentUserUid} already set. Re-initializing (data might have changed in pagehome).`);
+                             initializePageDataAndDisplay(); // Re-init might be needed if user navigated back and forth
+                        }
+                        break;
+                    case 'setLanguage':
+                        console.log(`Language received: ${event.data.lang}`);
+                        applyLanguage(event.data.lang);
+                        break;
+                     default:
+                         console.log("Received unhandled message action:", event.data.action);
+                         break;
                 }
             }
         });
@@ -177,68 +329,59 @@
         }
         console.log(profileName);
 
-function afficherTableau(rowsToDisplay = null) {
-            if (profileName) {
-                profileName = cleanProfileName(profileName);
-            }
+        function afficherTableau(rowsToDisplay = null) {
+            const T = pageTranslations[currentPageLanguage];
+            let safeProfileName = profileName ? cleanProfileName(profileName) : T.noProfile;
 
-             // Always use the original header row from data_transform
             const headerRow = data_transform[0] || [];
-             const dataRows = data_transform.slice(1); // Original data rows for reference if needed
+            const dataRows = data_transform.slice(1);
 
-            console.log("Afficher Tableau - Displaying:", rowsToDisplay ? "Custom Order" : "Original Order");
-            console.log("Current Selection Set:", selectedRowIndices); // Log selection state
+            let tableHtml = `<h1>${T.tableTitle.replace('{profileName}', safeProfileName)}</h1><table><thead><tr>`;
 
-            let tableHtml = `<h1><P></P> ${profileName || 'No Profile'}</h1><table><thead><tr>`;
-
-            // --- Header Row Rendering ---
-            tableHtml += "<th>Select lines <br/> <input type='checkbox' id='selectAllRowsCheckbox' title='Select/Deselect All Displayed Rows'></th>";
+            // Header Row Rendering with translated tooltips/placeholders
+            tableHtml += `<th>${T.selectRowsHeader}<br/><input type='checkbox' id='selectAllRowsCheckbox'></th>`;
 
             selectedColumns.forEach((originalColIndex, displayIndex) => {
-                const headerText = headerRow[originalColIndex] !== undefined ? headerRow[originalColIndex] : `Column ${originalColIndex}`;
+                const headerText = headerRow[originalColIndex] !== undefined ? headerRow[originalColIndex] : `Col ${originalColIndex}`;
                 const searchInputId = `search-col-${originalColIndex}`;
-                 // Restore search value if criteria exist for this column
-                 const currentSearchValue = currentSearchCriteria[originalColIndex] || '';
+                const currentSearchValue = currentSearchCriteria[originalColIndex] || '';
 
-                tableHtml += `<th onclick="showSortOptions(${displayIndex}, event)">`;
-                tableHtml += `<input type='checkbox' class='columnSelect' value='${originalColIndex}' title='Include column in similarity/virtual'> `;
-                tableHtml += `${headerText}<br/>`;
-                 // Set the value attribute to the stored search term
-                tableHtml += `<input type='text' class='header-search' id='${searchInputId}' data-original-index='${originalColIndex}' placeholder='Search...' value="${escapeHtml(currentSearchValue)}" onclick='event.stopPropagation();'>`;
+                tableHtml += `<th onclick="showSortOptions(${displayIndex}, event)">`; // Use displayIndex for click handler
+                tableHtml += `<input type='checkbox' class='columnSelect' value='${originalColIndex}'> `;
+                tableHtml += `${escapeHtml(headerText)}<br/>`;
+                tableHtml += `<input type='text' class='header-search' id='${searchInputId}' data-original-index='${originalColIndex}' placeholder='${T.searchPlaceholder}' value="${escapeHtml(currentSearchValue)}" onclick='event.stopPropagation();'>`;
                 tableHtml += `</th>`;
             });
             tableHtml += "</tr></thead><tbody>";
 
-            // --- Data Row Rendering ---
-             const rowSource = rowsToDisplay || dataRows.map((row, index) => ({ originalIndex: index + 1, rowData: row })); // Use provided order or create default mapping
+            // Data Row Rendering
+            const rowSource = rowsToDisplay || dataRows.map((row, index) => ({ originalIndex: index + 1, rowData: row }));
 
-             if (rowSource.length > 0) {
+            if (rowSource.length > 0) {
                 rowSource.forEach(rowInfo => {
-                    const originalRowIndex = rowInfo.originalIndex; // Index in the original data_transform (1-based)
+                    const originalRowIndex = rowInfo.originalIndex;
                     const currentRowData = rowInfo.rowData;
-
-                    if (!currentRowData) return; // Skip if rowData is somehow missing
+                    if (!currentRowData) return;
                     const isChecked = selectedRowIndices.has(originalRowIndex);
 
                     tableHtml += "<tr>";
-                     // Checkbox value MUST be the original index for other functions to work correctly
                     tableHtml += `<td><input type='checkbox' class='rowSelect' value='${originalRowIndex}' ${isChecked ? 'checked' : ''}></td>`;
                     selectedColumns.forEach(originalColIndex => {
                         const cellData = currentRowData[originalColIndex] !== undefined ? currentRowData[originalColIndex] : '';
-                        tableHtml += `<td>${escapeHtml(String(cellData))}</td>`; // Escape cell data
+                        tableHtml += `<td>${escapeHtml(String(cellData))}</td>`;
                     });
                     tableHtml += "</tr>";
                 });
             } else {
                 const colCount = selectedColumns.length + 1;
-                tableHtml += `<tr><td colspan="${colCount}">No data rows available.</td></tr>`;
+                tableHtml += `<tr><td colspan="${colCount}">${T.noDataRows}</td></tr>`; // Translated message
             }
 
             tableHtml += "</tbody></table>";
             document.getElementById('table').innerHTML = tableHtml;
 
-            setupRowSelectionCheckboxes(); // Setup listeners for row checkboxes
-            hideSortOptions();
+            setupRowSelectionCheckboxes();
+            hideSortOptions(); // Hide sort popup after rendering
         }
 
         // Helper to escape HTML for safe display
@@ -300,7 +443,6 @@ function afficherTableau(rowsToDisplay = null) {
                         selectedRowIndices.delete(originalIndex); // Remove from selection Set
                     }
                 });
-                 this.indeterminate = false; // Not indeterminate after select/deselect all
                  console.log("Selection Set after Select All:", selectedRowIndices);
             });
 
@@ -323,6 +465,7 @@ function afficherTableau(rowsToDisplay = null) {
         }
 
         function searchAndReorderView() {
+            const T = pageTranslations[currentPageLanguage];
             console.log("Searching and reordering view...");
             const searchInputs = document.querySelectorAll('#table th input.header-search');
             currentSearchCriteria = {}; // Reset and gather current criteria
@@ -343,14 +486,12 @@ function afficherTableau(rowsToDisplay = null) {
 
             // If no criteria, just show original order (handled by calling afficherTableau without args)
             if (criteriaKeys.length === 0) {
-                console.log("No search terms entered. Displaying original order.");
-                clearSearchAndResetView(); // Effectively resets if called with no criteria
+                alert(T.alterSearch); // Effectively resets if called with no criteria
                 return;
             }
 
             const matchingRows = [];
             const nonMatchingRows = [];
-            const headerRow = data_transform[0]; // Keep header aside
             const dataRows = data_transform.slice(1); // Rows to process
 
             dataRows.forEach((currentRow, index) => {
@@ -379,7 +520,7 @@ function afficherTableau(rowsToDisplay = null) {
                 }
             });
             if(matchingRows.length === 0){
-                alert("Found 0 result for your search!");
+                alert(T.alertSearchNotFound); // Use translated alert
                 return;
             }
             console.log(`Found ${matchingRows.length} matching rows.`);
@@ -444,9 +585,10 @@ function afficherTableau(rowsToDisplay = null) {
     }
 
 
-document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', () => {
              // Keep existing listeners for sort buttons and close popup
              // ... sort listeners ...
+             const T = pageTranslations[currentPageLanguage]; // Use initial default lang
              const sortAscBtn = document.getElementById('sortAscButton');
              const sortDescBtn = document.getElementById('sortDescButton');
              const closePopupBtn = document.getElementById('closeSortPopup');
@@ -471,9 +613,9 @@ document.addEventListener('DOMContentLoaded', () => {
              // ... initial loading message ...
              const tableDiv = document.getElementById('table');
               if (tableDiv) {
-                  tableDiv.innerHTML = "<h2>Loading user context...</h2>";
+                 tableDiv.innerHTML = `<h2>${T.loadingUserContext}</h2>`; // Translated initial message
               }
-         });
+    });
 
          // --- Sorting Logic (Modified to work with reordered view) ---
           function simple_sort(sortType) {
@@ -565,30 +707,26 @@ function trierParDistanceEuclidienne(fullRows, selectedRows, filteredRows) {
 }
 
 function calculer_similarity() {
+    const T = pageTranslations[currentPageLanguage];
     const selectedRows = Array.from(document.querySelectorAll('input.rowSelect:checked')).map(input => parseInt(input.value));
     const selectedCols = Array.from(document.querySelectorAll('input.columnSelect:checked')).map(input => parseInt(input.value));
     console.log("Selected cols: ",selectedCols);
     console.log("Selected rows: ",selectedRows);
 
-    const tooltip = document.getElementById('tooltip');
-    tooltip.style.display = "none"; // Masquer le tooltip par défaut
+    const tooltip = document.getElementById('computeClosestTooltip');
+    tooltip.textContent = T.computeClosestButtonTooltip; // Reset to default
 
     if (selectedRows.length === 0) {
-        tooltip.textContent = "\"Please select at least one patient!\"";
-        tooltip.style.display = "block"; // Afficher le tooltip
-        alert("Please select at least one row!");
+        tooltip.textContent = T.computeClosestTooltipSelectPatient;
+        alert(T.alertSelectPatient);
         return;
     }
-    else if (selectedCols.length === 0) {
-        tooltip.textContent = "\"Please select at least one column!\"";
-        tooltip.style.display = "block"; // Afficher le tooltip
-        alert("Please select at least one column!");
+    if (selectedCols.length === 0) {
+        tooltip.textContent = T.computeClosestTooltipSelectColumn;
+        alert(T.alertSelectPatient);
         return;
     }
-    else{
-        tooltip.textContent = "Click here to see the result!";
-        tooltip.style.display = "block"; // Afficher le tooltip
-    }
+    tooltip.textContent = T.computeClosestTooltipReady;
 
     // Des valeurs pour les colonnes on a chosi
     const filteredRows = data_transform.slice(1).map(row => {
@@ -597,15 +735,25 @@ function calculer_similarity() {
 
     console.log("Fil: ",filteredRows);
     // Valeur original dans ce fichier
-    const fullRows = data_transform.slice(1);
+    const fullRows = data_transform.slice(1).map(row => {
+        return selectedColumns.map(colIndex => parseFloat(row[colIndex]) || 0);
+    });
     console.log("Full: ",fullRows);
 
     // Données après similarité
     const orderedData = trierParDistanceEuclidienne(fullRows, selectedRows, filteredRows);
     console.log(orderedData);
+    const headerTable = selectedColumns.map(colIndex => {
+        if (data_transform[0] && data_transform[0][colIndex] !== undefined) {
+            return data_transform[0][colIndex];
+        } else {
+            console.warn(`Header name not found for index: ${colIndex}`);
+            return `Column ${colIndex}`; // Or return null/undefined as needed
+        }
+    });
     // Creer un table pour des nouveau fichier .csv après similarité
-    let table_similarity = `<div class=\"table\" id=\"table\"> <h1> Result Similarity for ${profileName} </h1><table><thead><tr>`;
-    data_transform[0].forEach(header => {
+    let table_similarity = `<div class=\"table\" id=\"table\"> <h1> ${T.titleTable} ${profileName} </h1><table><thead><tr>`;
+    headerTable.forEach(header => {
         table_similarity += `<th>${header}</th>`;
     });
     table_similarity += "</tr></thead><tbody>";
@@ -630,23 +778,22 @@ function calculer_similarity() {
 
 
 function virtual_profile() {
+    const T = pageTranslations[currentPageLanguage];
     const selectedRows = Array.from(document.querySelectorAll('input.rowSelect:checked')).map(input => parseInt(input.value));
     let rows = getTableData();
     let selectedCols = selectedColumns;
     console.log(selectedColumns);
-    const tooltip1 = document.getElementById('tooltip1');
-    tooltip1.style.display = "none"; // Masquer le tooltip par défaut
+    const tooltip = document.getElementById('exploreHypothesisTooltip');
+
+    tooltip.textContent = T.exploreHypothesisButtonTooltip; // Reset to default
 
     if (selectedRows.length === 0) {
-        tooltip1.textContent = " \"Please select at least one patient!\"";
-        tooltip1.style.display = "block"; // Afficher le tooltip
-        alert("Please select at least one row!");
+        tooltip.textContent = T.exploreHypothesisTooltipSelectPatient;
+        alert(T.alertSelectPatient); // Translated alert
         return;
     }
-    else {
-        tooltip1.textContent = "Click here to display virtual patients!";
-        tooltip1.style.display = "block"; // Afficher le tooltip
-    }
+
+    tooltip.textContent = T.exploreHypothesisTooltipReady;
 
     // Stocker les colonnes et les lignes dans localStorage
     setUserItem('selectedRows',selectedRows);
