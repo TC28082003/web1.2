@@ -519,7 +519,7 @@ console.log(virtualProfilesData);
         return Math.sqrt(sum);
     }
 
-        function calculerCentroide(points) {
+     function calculerCentroide(points) {
     if (!points || points.length === 0) {
         return [];
     }
@@ -539,55 +539,38 @@ console.log(virtualProfilesData);
     for (let i = 0; i < nbDimensions; i++) {
         centroide[i] /= nbPoints;
     }
-    console.log(centroide);
+
     return centroide;
 }
+function trierParDistanceEuclidienne(fullRows, virtual_Rows, filteredRows) {
+    // Step 1: Calculate the centroid of the virtual patients. THIS IS THE KEY CHANGE.
+    const centroideVirtuel = calculerCentroide(virtual_Rows);
+    console.log("Calculated Centroid of virtual points:", centroideVirtuel);
 
-function trierParDistanceEuclidienne(fullRows, selectedRows, filteredRows) {
-    let ligneChoisis_data = []; // Data of selected rows (for centroid calculation)
-    let ligneChoisis_original = []; // Original data of selected rows (to display at top)
-    let autres = []; // Other (unselected) rows
+    if (centroideVirtuel.length === 0) {
+        console.error("Could not calculate centroid for virtual rows. Aborting sort.");
+        return fullRows; // Return unsorted original rows as a fallback
+    }
 
-    // Step 1: Separate rows into 'selected' and 'others'
+    // Step 2: Calculate the distance from each 'real' patient to the VIRTUAL CENTROID
+    let distancesAuxReels = [];
     for (let i = 0; i < filteredRows.length; i++) {
-        // Note: selectedRows is 1-based from checkbox values
-        if (selectedRows.includes(i + 1)) {
-            ligneChoisis_data.push(filteredRows[i]);
-            ligneChoisis_original.push(fullRows[i]);
-        } else {
-            autres.push({ original: fullRows[i], filtered: filteredRows[i] });
-        }
+        const pointReel = filteredRows[i]; // The data of the real patient (for calculation)
+
+        // Calculate distance to the single centroid point, not to multiple virtual points
+        let dist = euclideanDistance(pointReel, centroideVirtuel);
+
+        // Store the original full row data along with its calculated distance
+        distancesAuxReels.push({ row: fullRows[i], distance: dist });
     }
 
-    // Step 2: Calculate the centroid of the selected points. THIS IS THE KEY CHANGE.
-    const centroide = calculerCentroide(ligneChoisis_data);
-    console.log("Calculated Centroid of selected points:", centroide);
+    // Step 3: Sort the real patients based on their distance to the centroid
+    distancesAuxReels.sort((a, b) => a.distance - b.distance);
 
-    if (centroide.length === 0) {
-        // Handle case where no rows were selected or data is invalid
-        console.error("Could not calculate centroid. Aborting sort.");
-        return [...ligneChoisis_original, ...autres.map(item => item.original)];
-    }
+    console.log("Sorted distances of real patients to centroid:", distancesAuxReels);
 
-    // Step 3: Calculate the distance from each 'other' point to the CENTROID
-    let distancesAuxAutres = [];
-    for (let i = 0; i < autres.length; i++) {
-        // Calculate distance to the single centroid point, not to multiple selected points
-        let dist = euclideanDistance(autres[i].filtered, centroide);
-        distancesAuxAutres.push({ row: autres[i].original, distance: dist });
-    }
-
-    // Step 4: Sort the 'other' rows based on their distance to the centroid
-    distancesAuxAutres.sort((a, b) => a.distance - b.distance);
-
-    console.log("Sorted distances to centroid:", distancesAuxAutres);
-
-    // Step 5: Return the final, ordered list of rows
-    // The selected rows appear first, followed by the others sorted by proximity to the center.
-    return [
-        ...ligneChoisis_original,
-        ...distancesAuxAutres.map(item => item.row)
-    ];
+    // Step 4: Return the newly sorted array of original rows
+    return distancesAuxReels.map(item => item.row);
 }
 
 
