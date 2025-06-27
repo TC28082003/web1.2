@@ -661,6 +661,7 @@
              return displayedRowsInfo;
          }
 
+
         // Fonction pour calculer la distance Euclidienne entre deux vecteurs
         function euclideanDistance(vec1, vec2) {
             let sum = 0;
@@ -670,39 +671,74 @@
             return Math.sqrt(sum);
         }
 
-function trierParDistanceEuclidienne(fullRows, selectedRows, filteredRows) {
-    let ligneChoisis = [];
-    let autres = [];
+function calculerCentroide(points) {
+    if (!points || points.length === 0) {
+        return [];
+    }
 
-    // Diviser les lignes choisi avec des autres lignes
+    const nbDimensions = points[0].length;
+    const centroide = new Array(nbDimensions).fill(0);
+
+    // Sum up the coordinates for each dimension across all points
+    for (const point of points) {
+        for (let i = 0; i < nbDimensions; i++) {
+            centroide[i] += point[i];
+        }
+    }
+
+    // Divide by the number of points to get the average (the centroid)
+    const nbPoints = points.length;
+    for (let i = 0; i < nbDimensions; i++) {
+        centroide[i] /= nbPoints;
+    }
+
+    return centroide;
+}
+
+function trierParDistanceEuclidienne(fullRows, selectedRows, filteredRows) {
+    let ligneChoisis_data = []; // Data of selected rows (for centroid calculation)
+    let ligneChoisis_original = []; // Original data of selected rows (to display at top)
+    let autres = []; // Other (unselected) rows
+
+    // Step 1: Separate rows into 'selected' and 'others'
     for (let i = 0; i < filteredRows.length; i++) {
+        // Note: selectedRows is 1-based from checkbox values
         if (selectedRows.includes(i + 1)) {
-            ligneChoisis.push({ original: fullRows[i], filtered: filteredRows[i] });
+            ligneChoisis_data.push(filteredRows[i]);
+            ligneChoisis_original.push(fullRows[i]);
         } else {
             autres.push({ original: fullRows[i], filtered: filteredRows[i] });
         }
     }
-    console.log(ligneChoisis);
-    console.log(autres);
-    let distanceMin = [];
-    // Calculer par le euclidean algorithme
-    for (let i = 0; i < autres.length; i++) {
-        let distances = [];
-        for (let j = 0; j < ligneChoisis.length; j++) {
-            let dist = euclideanDistance(autres[i].filtered, ligneChoisis[j].filtered);
-            distances.push(dist);
-        }
-        let minDist = Math.min(...distances);
-        distanceMin.push({ row: autres[i].original, distance: minDist });
+
+    // Step 2: Calculate the centroid of the selected points. THIS IS THE KEY CHANGE.
+    const centroide = calculerCentroide(ligneChoisis_data);
+    console.log("Calculated Centroid of selected points:", centroide);
+
+    if (centroide.length === 0) {
+        // Handle case where no rows were selected or data is invalid
+        console.error("Could not calculate centroid. Aborting sort.");
+        return [...ligneChoisis_original, ...autres.map(item => item.original)];
     }
 
-    // Sort par le distance
-    distanceMin.sort((a, b) => a.distance - b.distance);
-    console.log(distanceMin);
-    // Return un nouveau table après similarité
+    // Step 3: Calculate the distance from each 'other' point to the CENTROID
+    let distancesAuxAutres = [];
+    for (let i = 0; i < autres.length; i++) {
+        // Calculate distance to the single centroid point, not to multiple selected points
+        let dist = euclideanDistance(autres[i].filtered, centroide);
+        distancesAuxAutres.push({ row: autres[i].original, distance: dist });
+    }
+
+    // Step 4: Sort the 'other' rows based on their distance to the centroid
+    distancesAuxAutres.sort((a, b) => a.distance - b.distance);
+
+    console.log("Sorted distances to centroid:", distancesAuxAutres);
+
+    // Step 5: Return the final, ordered list of rows
+    // The selected rows appear first, followed by the others sorted by proximity to the center.
     return [
-        ...ligneChoisis.map(item => item.original),
-        ...distanceMin.map(item => item.row)
+        ...ligneChoisis_original,
+        ...distancesAuxAutres.map(item => item.row)
     ];
 }
 
