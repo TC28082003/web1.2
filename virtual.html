@@ -507,6 +507,7 @@
     }
 console.log(virtualProfiles);
 console.log(virtualProfilesData);
+        
     function euclideanDistance(vec1, vec2) {
         if (!vec1 || !vec2 || vec1.length !== vec2.length) {
            throw new Error('Vectors are undefined or of different lengths');
@@ -518,33 +519,76 @@ console.log(virtualProfilesData);
         return Math.sqrt(sum);
     }
 
-    function trierParDistanceEuclidienne(fullRows, virtual_Rows, filteredRows) {
-        let lines = [];
-
-        // Diviser les lignes choisi avec des autres lignes
-        for (let i = 0; i < filteredRows.length; i++) {
-            lines.push({ original: fullRows[i], filtered: filteredRows[i] });
-        }
-        console.log(lines);
-
-        let distanceMin = [];
-        // Calculer par le euclidean algorithme
-        for (let i = 0; i < lines.length; i++) {
-            let distances = [];
-            for (let j = 0; j < virtual_Rows.length; j++) {
-                let dist = euclideanDistance(lines[i].filtered, virtual_Rows[j]);
-                distances.push(dist);
-            }
-            let minDist = Math.min(...distances);
-            distanceMin.push({ row: lines[i].original, distance_min: minDist });
-        }
-
-        // Sort par le distance
-        distanceMin.sort((a, b) => a.distance_min - b.distance_min);
-        console.log(distanceMin);
-        // Return un nouveau table après similarité
-        return distanceMin.map(item => item.row);
+        function calculerCentroide(points) {
+    if (!points || points.length === 0) {
+        return [];
     }
+
+    const nbDimensions = points[0].length;
+    const centroide = new Array(nbDimensions).fill(0);
+
+    // Sum up the coordinates for each dimension across all points
+    for (const point of points) {
+        for (let i = 0; i < nbDimensions; i++) {
+            centroide[i] += point[i];
+        }
+    }
+
+    // Divide by the number of points to get the average (the centroid)
+    const nbPoints = points.length;
+    for (let i = 0; i < nbDimensions; i++) {
+        centroide[i] /= nbPoints;
+    }
+    console.log(centroide);
+    return centroide;
+}
+
+function trierParDistanceEuclidienne(fullRows, selectedRows, filteredRows) {
+    let ligneChoisis_data = []; // Data of selected rows (for centroid calculation)
+    let ligneChoisis_original = []; // Original data of selected rows (to display at top)
+    let autres = []; // Other (unselected) rows
+
+    // Step 1: Separate rows into 'selected' and 'others'
+    for (let i = 0; i < filteredRows.length; i++) {
+        // Note: selectedRows is 1-based from checkbox values
+        if (selectedRows.includes(i + 1)) {
+            ligneChoisis_data.push(filteredRows[i]);
+            ligneChoisis_original.push(fullRows[i]);
+        } else {
+            autres.push({ original: fullRows[i], filtered: filteredRows[i] });
+        }
+    }
+
+    // Step 2: Calculate the centroid of the selected points. THIS IS THE KEY CHANGE.
+    const centroide = calculerCentroide(ligneChoisis_data);
+    console.log("Calculated Centroid of selected points:", centroide);
+
+    if (centroide.length === 0) {
+        // Handle case where no rows were selected or data is invalid
+        console.error("Could not calculate centroid. Aborting sort.");
+        return [...ligneChoisis_original, ...autres.map(item => item.original)];
+    }
+
+    // Step 3: Calculate the distance from each 'other' point to the CENTROID
+    let distancesAuxAutres = [];
+    for (let i = 0; i < autres.length; i++) {
+        // Calculate distance to the single centroid point, not to multiple selected points
+        let dist = euclideanDistance(autres[i].filtered, centroide);
+        distancesAuxAutres.push({ row: autres[i].original, distance: dist });
+    }
+
+    // Step 4: Sort the 'other' rows based on their distance to the centroid
+    distancesAuxAutres.sort((a, b) => a.distance - b.distance);
+
+    console.log("Sorted distances to centroid:", distancesAuxAutres);
+
+    // Step 5: Return the final, ordered list of rows
+    // The selected rows appear first, followed by the others sorted by proximity to the center.
+    return [
+        ...ligneChoisis_original,
+        ...distancesAuxAutres.map(item => item.row)
+    ];
+}
 
 
     function calculer_virtual_sort() {
